@@ -1,0 +1,23 @@
+{
+  "name": "mypic",
+  "private": true,
+  "workspaces": [
+    "shared",
+    "services",
+    "infra",
+    "web"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "dev:web": "npm run dev -w web",
+    "synth": "npm run synth -w infra",
+    "deploy:dev": "npm run deploy:dev -w infra",
+    "keys:dev": "npm run keys -w infra -- dev",
+    "env:web": "npm run env:web -w infra",
+    "cdk": "npm run cdk -w infra --"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

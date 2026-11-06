@@ -1,0 +1,25 @@
+{
+  "name": "@mypic/infra",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "cdk": "cdk",
+    "synth": "cdk synth -c stage=dev",
+    "diff:dev": "cdk diff -c stage=dev",
+    "deploy:dev": "cdk deploy -c stage=dev --all --outputs-file cdk-outputs.dev.json",
+    "deploy:prod": "cdk deploy -c stage=prod --all --outputs-file cdk-outputs.prod.json",
+    "keys": "tsx scripts/gen-cloudfront-keys.ts",
+    "env:web": "tsx scripts/write-web-env.ts"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-ssm": "^3.1163.0",
+    "@types/node": "^26.6.6",
+    "aws-cdk": "^2.1148.0",
+    "aws-cdk-lib": "^2.275.0",
+    "constructs": "^10.8.1",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^6.0.3"
+  }
+}

@@ -1,0 +1,22 @@
+node_modules/
+.DS_Store
+*.log
+.env
+.env.*.local
+.env.local
+
+# CDK
+infra/cdk.out/
+infra/cdk.context.json
+cdk-outputs*.json
+
+
+# Next.js
+web/.next/
+web/out/
+web/next-env.d.ts
+
+coverage/
+
+# CloudFront signing keys are per deployment: generate your own with npm run keys:dev
+infra/keys/*.pem
