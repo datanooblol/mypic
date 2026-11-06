@@ -3,7 +3,7 @@
  * routing is by the route key ("METHOD /path/{param}") defined in infra ApiStack.
  */
 import { HttpError, json, type AuthedEvent, type Result } from '../lib/http';
-import { downloadMedia, listMedia } from './media';
+import { downloadMedia, getMedia, listMedia, reprocessMedia } from './media';
 import { getMe } from './me';
 import { abortUpload, completeUpload, createUpload, partUrls } from './uploads';
 
@@ -16,7 +16,9 @@ export const routes: Record<string, Route> = {
   'POST /uploads/{mediaId}/complete': completeUpload,
   'DELETE /uploads/{mediaId}': abortUpload,
   'GET /media': listMedia,
+  'GET /media/{mediaId}': getMedia,
   'GET /media/{mediaId}/download': downloadMedia,
+  'POST /media/{mediaId}/reprocess': reprocessMedia,
 };
 
 export async function handler(event: AuthedEvent): Promise<Result> {

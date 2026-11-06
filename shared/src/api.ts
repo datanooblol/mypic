@@ -6,6 +6,8 @@ export interface CreateUploadRequest {
   mime: string;
   /** File.lastModified (epoch ms). Initial takenAt until EXIF is read. */
   lastModified?: number;
+  /** Browser's UTC offset (minutes east) at lastModified, until EXIF provides one. */
+  timezoneOffset?: number;
 }
 
 export type CreateUploadResponse =

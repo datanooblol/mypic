@@ -2,11 +2,18 @@
 
 import type { MediaView, Page } from '@mypic/shared';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Lightbox } from '@/components/Lightbox';
 import { MediaTile } from '@/components/MediaTile';
 import { UploadIcon } from '@/components/icons';
 import { useUploads } from '@/components/UploadProvider';
 import { api } from '@/lib/api';
 import { monthKey, monthLabel } from '@/lib/format';
+import { isPending } from '@/lib/media';
+
+const POLL_MS = 3000;
+/** Poll recent uploads automatically; older stuck items only when explicitly retried. */
+const AUTO_POLL_WINDOW_MS = 15 * 60 * 1000;
+const MAX_POLL_BATCH = 25;
 
 /** Timeline: all media, newest first, grouped by month, infinite scroll. */
 export default function TimelinePage() {
@@ -16,8 +23,12 @@ export default function TimelinePage() {
   const [done, setDone] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
   const loadingRef = useRef(false);
+  const watching = useRef(new Set<string>());
   const sentinel = useRef<HTMLDivElement>(null);
+
+  const merge = useCallback((incoming: MediaView[]) => setItems((prev) => mergeSorted(prev, incoming)), []);
 
   const loadMore = useCallback(async () => {
     if (loadingRef.current || done) return;
@@ -27,7 +38,7 @@ export default function TimelinePage() {
     try {
       const qs = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
       const page = await api<Page<MediaView>>(`/media${qs}`);
-      setItems((prev) => mergeSorted(prev, page.items));
+      merge(page.items);
       setCursor(page.cursor);
       if (!page.cursor) setDone(true);
     } catch (err) {
@@ -36,7 +47,7 @@ export default function TimelinePage() {
       loadingRef.current = false;
       setLoading(false);
     }
-  }, [cursor, done]);
+  }, [cursor, done, merge]);
 
   // Load the next page whenever the sentinel scrolls into view.
   useEffect(() => {
@@ -52,16 +63,51 @@ export default function TimelinePage() {
     return () => observer.disconnect();
   }, [loadMore, done, error]);
 
-  // Show freshly uploaded files immediately.
-  useEffect(() => queue.onComplete((media) => setItems((prev) => mergeSorted(prev, [media]))), [queue]);
+  // Show freshly uploaded files immediately, then watch them until processed.
+  useEffect(
+    () =>
+      queue.onComplete((media) => {
+        watching.current.add(media.mediaId);
+        merge([media]);
+      }),
+    [queue, merge],
+  );
+
+  // Poll items that are still processing.
+  useEffect(() => {
+    const now = Date.now();
+    const pending = items
+      .filter((m) => isPending(m) && (watching.current.has(m.mediaId) || now - Date.parse(m.uploadedAt) < AUTO_POLL_WINDOW_MS))
+      .slice(0, MAX_POLL_BATCH);
+    if (!pending.length) return;
+    const timer = setTimeout(async () => {
+      const updated = await Promise.all(
+        pending.map((m) => api<MediaView>(`/media/${m.mediaId}`).catch(() => null)),
+      );
+      const fresh = updated.filter((m): m is MediaView => m !== null);
+      for (const m of fresh) if (!isPending(m)) watching.current.delete(m.mediaId);
+      merge(fresh);
+    }, POLL_MS);
+    return () => clearTimeout(timer);
+  }, [items, merge]);
+
+  const onChange = useCallback(
+    (media: MediaView) => {
+      watching.current.add(media.mediaId);
+      merge([media]);
+    },
+    [merge],
+  );
+  const onNearEnd = useCallback(() => void loadMore(), [loadMore]);
+  const onClose = useCallback(() => setOpenId(null), []);
 
   const groups = useMemo(() => {
     const out: { key: string; label: string; items: MediaView[] }[] = [];
     for (const m of items) {
-      const key = monthKey(m.takenAt);
+      const key = monthKey(m);
       const last = out[out.length - 1];
       if (last?.key === key) last.items.push(m);
-      else out.push({ key, label: monthLabel(m.takenAt), items: [m] });
+      else out.push({ key, label: monthLabel(m), items: [m] });
     }
     return out;
   }, [items]);
@@ -90,7 +136,7 @@ export default function TimelinePage() {
           </h2>
           <div className="grid grid-cols-3 gap-1 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
             {group.items.map((m) => (
-              <MediaTile key={m.mediaId} media={m} />
+              <MediaTile key={m.mediaId} media={m} onOpen={() => setOpenId(m.mediaId)} />
             ))}
           </div>
         </section>
@@ -109,6 +155,17 @@ export default function TimelinePage() {
             Try again
           </button>
         </div>
+      )}
+
+      {openId && (
+        <Lightbox
+          items={items}
+          mediaId={openId}
+          onSelect={setOpenId}
+          onClose={onClose}
+          onChange={onChange}
+          onNearEnd={onNearEnd}
+        />
       )}
     </div>
   );

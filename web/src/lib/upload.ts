@@ -71,7 +71,7 @@ export async function uploadFile(
   const created = await api<CreateUploadResponse>('/uploads', {
     method: 'POST',
     signal,
-    body: { filename: file.name, size: file.size, mime: file.type, lastModified: file.lastModified },
+    body: { filename: file.name, size: file.size, mime: file.type, lastModified: file.lastModified, timezoneOffset: -new Date(file.lastModified).getTimezoneOffset() },
   });
 
   try {

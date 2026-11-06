@@ -2,7 +2,7 @@
 
 Self-hosted photo and video storage that runs in **your own AWS account**. It's private by default and designed to cost a few dollars a month.
 
-> **Status: work in progress.** Done so far: infrastructure (auth, storage, CDN, budget alarm), the upload/list API, and a web app with sign-in, bulk upload and a timeline. Thumbnails and image processing come next. See the [milestones](docs/SPEC.md#10-milestones).
+> **Status: work in progress.** Done so far: infrastructure (auth, storage, CDN, budget alarm), the upload/list API, image processing (thumbnails, EXIF, HEIC, RAW previews), and a web app with sign-in, bulk upload, a timeline and a lightbox. Albums and tags come next. See the [milestones](docs/SPEC.md#10-milestones).
 
 ## Features (planned for v1)
 
@@ -33,7 +33,7 @@ Full design: [docs/SPEC.md](docs/SPEC.md).
 
 - Node.js 22+
 - AWS CLI v2, configured with credentials for the target account (`aws sts get-caller-identity` should work)
-- Docker (needed in later milestones to build the image-processing Lambda)
+- Docker, running during `cdk deploy` (builds the image-processing Lambda container)
 
 ### 1. Configure
 
@@ -99,7 +99,7 @@ shared/     @mypic/shared    Domain types + DynamoDB/S3 key builders (used by se
 infra/      @mypic/infra     AWS CDK app
   bin/mypic.ts                 App entry: picks stage from -c stage=dev|prod
   lib/config.ts                Per-stage settings (reads infra/cdk.json context)
-  lib/stacks/                  auth, storage, api, budget (processing, ops next)
+  lib/stacks/                  auth, storage, processing, api, budget (ops next)
   scripts/                     CloudFront key generation, web/.env.local writer
   keys/                        Your CloudFront public key (gitignored)
 services/   @mypic/services  Lambda handlers (bundled by CDK with esbuild)

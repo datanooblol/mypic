@@ -4,7 +4,9 @@ import * as apigw from 'aws-cdk-lib/aws-apigatewayv2';
 import { HttpUserPoolAuthorizer } from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 import { HttpLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import type * as cognito from 'aws-cdk-lib/aws-cognito';
+import type * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import type * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as nodejs from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as logs from 'aws-cdk-lib/aws-logs';
@@ -18,6 +20,9 @@ export interface ApiStackProps extends StackProps {
   userPoolClient: cognito.IUserPoolClient;
   table: dynamodb.ITableV2;
   bucket: s3.IBucket;
+  distribution: cloudfront.IDistribution;
+  cdnKeyPairId: string;
+  processingFn: lambda.IFunction;
 }
 
 const REPO_ROOT = path.join(__dirname, '..', '..', '..');
@@ -30,7 +35,9 @@ const ROUTES: [apigw.HttpMethod, string][] = [
   [apigw.HttpMethod.POST, '/uploads/{mediaId}/complete'],
   [apigw.HttpMethod.DELETE, '/uploads/{mediaId}'],
   [apigw.HttpMethod.GET, '/media'],
+  [apigw.HttpMethod.GET, '/media/{mediaId}'],
   [apigw.HttpMethod.GET, '/media/{mediaId}/download'],
+  [apigw.HttpMethod.POST, '/media/{mediaId}/reprocess'],
 ];
 
 /** HTTP API + one router Lambda, protected by the Cognito JWT authorizer. */
@@ -40,6 +47,7 @@ export class ApiStack extends Stack {
   constructor(scope: Construct, id: string, props: ApiStackProps) {
     super(scope, id, props);
     const { config } = props;
+    const privateKeyParam = `/mypic/${config.stage}/cloudfront/private-key`;
 
     const fn = new nodejs.NodejsFunction(this, 'ApiFn', {
       functionName: `${config.prefix}-api`,
@@ -54,6 +62,10 @@ export class ApiStack extends Stack {
       environment: {
         TABLE_NAME: props.table.tableName,
         BUCKET_NAME: props.bucket.bucketName,
+        CDN_DOMAIN: props.distribution.distributionDomainName,
+        CDN_KEY_PAIR_ID: props.cdnKeyPairId,
+        CDN_PRIVATE_KEY_PARAM: privateKeyParam,
+        PROCESSING_FN: props.processingFn.functionName,
         NODE_OPTIONS: '--enable-source-maps',
       },
       bundling: {
@@ -71,6 +83,14 @@ export class ApiStack extends Stack {
     props.bucket.grantPut(fn, 'originals/*');
     props.bucket.grantRead(fn, 'originals/*');
     props.bucket.grantDelete(fn, 'originals/*');
+    props.processingFn.grantInvoke(fn);
+    // CloudFront signing key (SecureString, AWS-managed aws/ssm key).
+    fn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['ssm:GetParameter'],
+        resources: [this.formatArn({ service: 'ssm', resource: 'parameter', resourceName: privateKeyParam.slice(1) })],
+      }),
+    );
 
     const authorizer = new HttpUserPoolAuthorizer('Cognito', props.userPool, {
       userPoolClients: [props.userPoolClient],

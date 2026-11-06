@@ -1,0 +1,10 @@
+{
+  "name": "@mypic/processing-runtime",
+  "private": true,
+  "description": "Runtime modules installed inside the processing container (native/WASM, not bundled). Versions must match node_modules; enforced by services/test/processing-runtime.test.ts.",
+  "dependencies": {
+    "exiftool-vendored": "39.1.1",
+    "heic-decode": "2.1.0",
+    "sharp": "0.35.5"
+  }
+}

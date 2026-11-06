@@ -12,9 +12,13 @@ import {
   QueryCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
+import { generateKeyPairSync } from 'node:crypto';
+import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
+import { GetParameterCommand, SSMClient } from '@aws-sdk/client-ssm';
 import { mockClient } from 'aws-sdk-client-mock';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { handler } from '../src/api/index';
+import { cdnUrlsFor, signingExpiry, SIGNING_WINDOW_MS } from '../src/lib/cdn';
 import { encodeCursor } from '../src/lib/cursor';
 import type { AuthedEvent } from '../src/lib/http';
 import { attachmentDisposition, detectMediaType } from '../src/lib/media';
@@ -24,9 +28,21 @@ process.env.BUCKET_NAME = 'bucket';
 process.env.AWS_REGION = 'ap-southeast-1';
 process.env.AWS_ACCESS_KEY_ID = 'test';
 process.env.AWS_SECRET_ACCESS_KEY = 'test';
+process.env.CDN_DOMAIN = 'cdn.example.net';
+process.env.CDN_KEY_PAIR_ID = 'KTEST';
+process.env.CDN_PRIVATE_KEY_PARAM = '/mypic/test/cloudfront/private-key';
+process.env.PROCESSING_FN = 'processing-fn';
+
+const { privateKey } = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+});
 
 const ddbMock = mockClient(DynamoDBDocumentClient);
 const s3Mock = mockClient(S3Client);
+const ssmMock = mockClient(SSMClient);
+const lambdaMock = mockClient(LambdaClient);
 
 function event(routeKey: string, opts: Partial<AuthedEvent> & { json?: unknown; sub?: string } = {}) {
   const { json: body, sub = 'user-1', ...rest } = opts;
@@ -45,6 +61,10 @@ const status = (res: unknown) => (res as { statusCode: number }).statusCode;
 beforeEach(() => {
   ddbMock.reset();
   s3Mock.reset();
+  ssmMock.reset();
+  lambdaMock.reset();
+  ssmMock.on(GetParameterCommand).resolves({ Parameter: { Value: privateKey } });
+  lambdaMock.on(InvokeCommand).resolves({ StatusCode: 202 });
 });
 
 describe('detectMediaType', () => {
@@ -207,5 +227,82 @@ describe('GET /media', () => {
     const cursor = encodeCursor({ gsi1pk: 'USER#someone-else', gsi1sk: 'x', pk: 'x', sk: 'x' });
     const res = await handler(event('GET /media', { queryStringParameters: { cursor } }));
     expect(status(res)).toBe(400);
+  });
+});
+
+describe('processing trigger', () => {
+  const uploading = {
+    pk: 'USER#user-1', sk: 'MEDIA#m1', mediaId: 'm1', status: 'UPLOADING', size: 100,
+    s3Key: 'originals/user-1/m1/a.jpg', takenAt: '2024-05-01T00:00:00.000Z',
+  };
+
+  it('complete invokes the processing Lambda asynchronously', async () => {
+    ddbMock.on(GetCommand).resolves({ Item: uploading });
+    s3Mock.on(HeadObjectCommand).resolves({ ContentLength: 100 });
+    ddbMock.on(UpdateCommand).resolves({ Attributes: { ...uploading, status: 'PROCESSING' } });
+    await handler(event('POST /uploads/{mediaId}/complete', { pathParameters: { mediaId: 'm1' } }));
+
+    const input = lambdaMock.commandCalls(InvokeCommand)[0]!.args[0].input;
+    expect(input.FunctionName).toBe('processing-fn');
+    expect(input.InvocationType).toBe('Event');
+    expect(JSON.parse(Buffer.from(input.Payload as Uint8Array).toString())).toEqual({ userId: 'user-1', mediaId: 'm1' });
+  });
+
+  it('complete still succeeds if the invoke fails', async () => {
+    ddbMock.on(GetCommand).resolves({ Item: uploading });
+    s3Mock.on(HeadObjectCommand).resolves({ ContentLength: 100 });
+    ddbMock.on(UpdateCommand).resolves({ Attributes: { ...uploading, status: 'PROCESSING' } });
+    lambdaMock.on(InvokeCommand).rejects(new Error('throttled'));
+    const res = await handler(event('POST /uploads/{mediaId}/complete', { pathParameters: { mediaId: 'm1' } }));
+    expect(status(res)).toBe(200);
+  });
+
+  it('reprocess resets status and invokes; 404 for missing or uploading items', async () => {
+    ddbMock.on(UpdateCommand).resolves({ Attributes: { ...uploading, status: 'PROCESSING' } });
+    const ok = await handler(event('POST /media/{mediaId}/reprocess', { pathParameters: { mediaId: 'm1' } }));
+    expect(status(ok)).toBe(202);
+    expect(lambdaMock.commandCalls(InvokeCommand)).toHaveLength(1);
+
+    ddbMock.on(UpdateCommand).rejects(new ConditionalCheckFailedException({ message: 'x', $metadata: {} }));
+    const missing = await handler(event('POST /media/{mediaId}/reprocess', { pathParameters: { mediaId: 'm2' } }));
+    expect(status(missing)).toBe(404);
+  });
+});
+
+describe('CDN signed URLs', () => {
+  it('shares one wildcard policy per user and only signs derived files that exist', async () => {
+    ddbMock.on(QueryCommand).resolves({
+      Items: [
+        { mediaId: 'a', status: 'READY', derived: ['thumb.webp', 'preview.webp'] },
+        { mediaId: 'b', status: 'PROCESSING' },
+      ],
+    });
+    const body = parse(await handler(event('GET /media')));
+    const [a, b] = body.items;
+    expect(a.thumbUrl).toMatch(/^https:\/\/cdn\.example\.net\/user-1\/a\/thumb\.webp\?Policy=.+&Key-Pair-Id=KTEST&Signature=/);
+    expect(a.previewUrl).toContain('/user-1/a/preview.webp?');
+    expect(a.thumbUrl.split('?')[1]).toBe(a.previewUrl.split('?')[1]);
+    expect(b.thumbUrl).toBeUndefined();
+
+    const policy = JSON.parse(
+      Buffer.from(new URL(a.thumbUrl).searchParams.get('Policy')!.replace(/-/g, '+').replace(/_/g, '=').replace(/~/g, '/'), 'base64').toString(),
+    );
+    expect(policy.Statement[0].Resource).toBe('https://cdn.example.net/user-1/*');
+  });
+
+  it('keeps URLs stable within a signing window', async () => {
+    const t = 1_750_000_000_000;
+    const start = Math.floor(t / SIGNING_WINDOW_MS) * SIGNING_WINDOW_MS + 1;
+    const u1 = (await cdnUrlsFor('u', start))('m', 'thumb.webp');
+    const u2 = (await cdnUrlsFor('u', start + SIGNING_WINDOW_MS - 2))('m', 'thumb.webp');
+    expect(u1).toBe(u2);
+    expect(signingExpiry(start) - start).toBeGreaterThanOrEqual(SIGNING_WINDOW_MS);
+  });
+
+  it('reads the private key from SSM once per container', async () => {
+    ddbMock.on(QueryCommand).resolves({ Items: [] });
+    await handler(event('GET /media'));
+    await handler(event('GET /media'));
+    expect(ssmMock.commandCalls(GetParameterCommand).length).toBeLessThanOrEqual(1);
   });
 });

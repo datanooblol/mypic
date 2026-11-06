@@ -35,9 +35,9 @@ Personal media storage for one owner and a few invited users. Stores photos (inc
      │                                            │
      │ presigned PUT (multipart)                  │ presign / sign URLs
      ├────────────▶ S3 bucket  originals/…  ◀─────┘
-     │                 │ ObjectCreated (EventBridge)
+     │                 │   API async-invokes on upload complete / reprocess
      │                 ▼
-     │          Processing Lambda (container: sharp + libheif + exiftool)
+     │          Processing Lambda (container: sharp + heic-decode + exiftool)
      │            ├─ image/RAW → thumb.webp, preview.webp, EXIF → DynamoDB
      │            └─ video     → MediaConvert job → mp4 + poster → DynamoDB
      │
@@ -59,7 +59,7 @@ Personal media storage for one owner and a few invited users. Stores photos (inc
 
 ```
 originals/{userId}/{mediaId}/{originalFilename}
-derived/{userId}/{mediaId}/thumb.webp      # ~400px long edge, grid
+derived/{userId}/{mediaId}/thumb.webp      # 400px short edge (square grid crops)
 derived/{userId}/{mediaId}/preview.webp    # ~2048px long edge, lightbox
 derived/{userId}/{mediaId}/video.mp4       # 1080p H.264/AAC
 derived/{userId}/{mediaId}/poster.jpg      # video poster frame
@@ -77,7 +77,7 @@ zips/{userId}/{jobId}.zip                  # temporary album exports
 
 ### 3.2 CloudFront
 - Origin: the S3 bucket via Origin Access Control, restricted to the `derived/*` path.
-- Access: **CloudFront signed URLs** (RSA key pair, private key kept in SSM Parameter Store as a SecureString). The list API signs each thumbnail and preview URL with a TTL of about 1 hour.
+- Access: **CloudFront signed URLs** (RSA key pair, private key kept in SSM Parameter Store as a SecureString). The API signs one **custom policy per user** covering `https://{cdn}/{userId}/*` and appends the same signature to every URL in a response. The expiry is rounded up to a 6-hour window, so URLs stay identical across requests (browser cache hits) and are valid for 6–12 hours.
 - Signed *cookies* are an option later if a custom domain is added. Cookies only work when the app and CloudFront share a parent domain.
 - Cache policy: long TTL. Derived keys never change, so they can be cached for a long time.
 
@@ -96,7 +96,7 @@ zips/{userId}/{jobId}.zip                  # temporary album exports
 - `GSI1` (timeline): PK `USER#{uid}`, SK `TAKEN#{takenAt}#{mediaId}`. Only items that are *not* in the trash carry this key (sparse index).
 - `GSI2` (trash): PK `USER#{uid}#TRASH`, SK `{deletedAt}#{mediaId}`. Present only when the item is in the trash.
 
-`mediaId` is a ULID. `takenAt` comes from EXIF `DateTimeOriginal`. If that's missing, the upload time is used.
+`mediaId` is a ULID. `takenAt` is a UTC instant from EXIF (`DateTimeOriginal`, then other date tags). If EXIF is missing, the file's last-modified time is used. `takenAtOffset` holds minutes east of UTC where the photo was taken: from EXIF when recorded, otherwise the browser's offset at upload. Camera times with no time zone are stored as wall clock in UTC with offset 0. The UI always shows `takenAt + takenAtOffset`, so every viewer sees the time the camera showed.
 
 ---
 
@@ -108,13 +108,13 @@ zips/{userId}/{jobId}.zip                  # temporary album exports
    - Files > 16 MB: `CreateMultipartUpload` plus presigned part URLs (16 MB parts, more parts requested as needed).
 2. The browser uploads directly to S3, with 3–4 files in parallel and progress shown per file. Upload state (`uploadId`, finished parts) is saved in IndexedDB, so an interrupted upload can **resume**.
 3. The client calls `POST /uploads/{mediaId}/complete`, which completes the multipart upload and sets `status=PROCESSING`.
-4. An S3 `ObjectCreated` event on `originals/` goes to EventBridge, which invokes the **processing Lambda**.
+4. The API then **async-invokes the processing Lambda** with `{userId, mediaId}`. This replaced the original plan of S3 ObjectCreated events via EventBridge: with a single PUT, S3 fires its event *before* the client calls `complete`, so the processor would see a half-finished upload. `POST /media/{id}/reprocess` and `npm run reprocess -w infra -- <stage>` (backfill) use the same invoke.
 
-### 4.2 Processing Lambda (container image, arm64, ~2–3 GB memory)
-Contains `sharp` (with libheif for HEIC), `exiftool`, and `ffprobe`.
-- **Image (JPEG/PNG/WebP/HEIC):** read EXIF, apply rotation, write `thumb.webp` and `preview.webp`, save width, height, and EXIF fields, set `status=READY`.
-- **RAW:** `exiftool -b -JpgFromRaw` (falling back to `-PreviewImage`) gets the embedded JPEG, which then goes through the same steps as an image. EXIF is read from the RAW file itself.
-- **Video:** `ffprobe` reads duration, dimensions, and creation time. Then a **MediaConvert** job is submitted (1080p MP4 plus a frame capture for the poster). The record stays `status=TRANSCODING`.
+### 4.2 Processing Lambda (container image, x86_64, 2 GB memory, 4 GB /tmp, max 10 concurrent)
+Contains `sharp` (prebuilt libvips), `exiftool` (via `exiftool-vendored` + perl) and `heic-decode` (libheif WASM). Prebuilt sharp can't decode HEVC-based HEIC because of patent licensing, so HEIC goes through libheif. x86_64 avoids ARM emulation when building on most developer machines. Async retries: 2; final failures go to an SQS DLQ.
+- **Image (JPEG/PNG/WebP/HEIC):** read EXIF, apply rotation, write `thumb.webp` and `preview.webp`, save width, height, and EXIF fields, set `status=READY` and `derived=[...]`. Derived files have no metadata (GPS is stripped).
+- **RAW:** extract both `JpgFromRaw` and `PreviewImage` and use the larger. It then goes through the same steps as an image. EXIF, including orientation, is read from the RAW file itself.
+- **Video (M5):** `ffprobe` reads duration, dimensions, and creation time. Then a **MediaConvert** job is submitted (1080p MP4 plus a frame capture for the poster). The record stays `status=TRANSCODING`. *Until M5, videos are marked READY with no derived files (download only).*
 - Failures set `status=FAILED` with an error message, and the original is kept. The UI shows a retry option, which calls `POST /media/{id}/reprocess`.
 
 ### 4.3 MediaConvert completion
@@ -192,7 +192,7 @@ Every handler gets `userId` from the JWT `sub` and builds keys from it. Request 
 - **Lightbox:** `preview.webp`, with swipe on mobile and arrow keys on desktop, an EXIF info panel, and download and delete buttons. Videos play in a `<video>` element using `video.mp4` with `poster.jpg`.
 - **Placeholders** while processing, with automatic refresh by polling items whose status is `PROCESSING` or `TRANSCODING`.
 - **Multi-select** (long-press on mobile, shift-click on desktop) for batch tag, album, and delete actions.
-- Signed URLs expire after about 1 hour. The client refetches the page of results when a URL is close to expiring.
+- Signed URLs are valid for 6–12 hours. Refetching expired URLs on long-open tabs is planned for M7.
 - Use plain `<img>` tags rather than `next/image`'s optimizer. Images are already resized, and the optimizer would add Amplify compute cost.
 
 ---

@@ -1,3 +1,5 @@
+import type { DerivedKind } from './keys';
+
 /** Domain types shared by services (Lambda) and web (Next.js). See docs/SPEC.md. */
 
 export type MediaType = 'image' | 'raw' | 'video';
@@ -31,13 +33,18 @@ export interface Media {
   width?: number;
   height?: number;
   durationSec?: number;
-  takenAt: string; // ISO-8601
+  takenAt: string; // ISO-8601 UTC instant (for zone-less camera times: wall clock as UTC)
+  /** Minutes east of UTC where the photo was taken; display = takenAt + offset. */
+  takenAtOffset?: number;
   uploadedAt: string; // ISO-8601
   exif?: ExifSummary;
   tags: string[];
   albumIds: string[];
   deletedAt?: string;
   error?: string;
+  /** Derived files that exist under derived/{userId}/{mediaId}/. */
+  derived?: DerivedKind[];
+  processedAt?: string;
 }
 
 export interface Album {

@@ -20,3 +20,6 @@ coverage/
 
 # CloudFront signing keys are per deployment: generate your own with npm run keys:dev
 infra/keys/*.pem
+
+# Processing Lambda bundle (built during cdk synth)
+services/processing/dist/

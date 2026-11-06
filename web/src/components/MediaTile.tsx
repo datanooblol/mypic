@@ -1,30 +1,24 @@
 'use client';
 
-import { extensionOf, type DownloadResponse, type MediaView } from '@mypic/shared';
+import { extensionOf, type MediaView } from '@mypic/shared';
 import { useState } from 'react';
-import { api } from '@/lib/api';
 import { formatBytes } from '@/lib/format';
+import { downloadOriginal } from '@/lib/media';
 import { DownloadIcon, ImageIcon, RawIcon, VideoIcon } from './icons';
 
 const TYPE_ICON = { image: ImageIcon, raw: RawIcon, video: VideoIcon };
 
-/**
- * Grid tile. Until thumbnails exist (M3) this is a placeholder showing type, name and size.
- */
-export function MediaTile({ media }: { media: MediaView }) {
+/** Grid tile: thumbnail when available, otherwise a placeholder with type, name and size. */
+export function MediaTile({ media, onOpen }: { media: MediaView; onOpen: () => void }) {
   const [busy, setBusy] = useState(false);
+  const [broken, setBroken] = useState(false);
   const Icon = TYPE_ICON[media.type];
+  const showThumb = media.thumbUrl && !broken;
 
   async function download() {
     setBusy(true);
     try {
-      const { url } = await api<DownloadResponse>(`/media/${media.mediaId}/download`);
-      const a = document.createElement('a');
-      a.href = url;
-      a.rel = 'noopener';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      await downloadOriginal(media);
     } catch (err) {
       alert(`Download failed: ${err instanceof Error ? err.message : err}`);
     } finally {
@@ -34,22 +28,38 @@ export function MediaTile({ media }: { media: MediaView }) {
 
   return (
     <div className="group relative aspect-square overflow-hidden rounded-md bg-zinc-900 ring-1 ring-zinc-800">
-      {media.thumbUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element -- already resized; no optimizer needed
-        <img src={media.thumbUrl} alt={media.filename} loading="lazy" className="size-full object-cover" />
-      ) : (
-        <div className="flex size-full flex-col items-center justify-center gap-1 p-2 text-center">
-          <Icon className="size-7 text-zinc-500" />
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-            {extensionOf(media.filename) || media.type}
+      <button onClick={onOpen} className="block size-full cursor-zoom-in" aria-label={`Open ${media.filename}`}>
+        {showThumb ? (
+          // eslint-disable-next-line @next/next/no-img-element -- already resized; no optimizer needed
+          <img
+            src={media.thumbUrl}
+            alt={media.filename}
+            loading="lazy"
+            decoding="async"
+            onError={() => setBroken(true)}
+            className="size-full object-cover transition-opacity group-hover:opacity-90"
+          />
+        ) : (
+          <span className="flex size-full flex-col items-center justify-center gap-1 p-2 text-center">
+            <Icon className="size-7 text-zinc-500" />
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+              {extensionOf(media.filename) || media.type}
+            </span>
+            <span className="line-clamp-2 break-all text-[11px] leading-tight text-zinc-300">{media.filename}</span>
+            <span className="text-[10px] text-zinc-500">{formatBytes(media.size)}</span>
           </span>
-          <span className="line-clamp-2 break-all text-[11px] leading-tight text-zinc-300">{media.filename}</span>
-          <span className="text-[10px] text-zinc-500">{formatBytes(media.size)}</span>
-        </div>
-      )}
+        )}
+      </button>
 
+      {media.type === 'video' && showThumb && (
+        <VideoIcon className="pointer-events-none absolute right-1.5 top-1.5 size-4 text-white drop-shadow" />
+      )}
       {media.status !== 'READY' && (
-        <span className="absolute left-1.5 top-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-zinc-300">
+        <span
+          className={`pointer-events-none absolute left-1.5 top-1.5 rounded px-1.5 py-0.5 text-[10px] ${
+            media.status === 'FAILED' ? 'bg-red-950/90 text-red-200' : 'bg-black/70 text-zinc-300'
+          }`}
+        >
           {media.status === 'FAILED' ? 'Failed' : 'Processing'}
         </span>
       )}

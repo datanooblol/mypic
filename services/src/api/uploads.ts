@@ -24,7 +24,7 @@ import { ulid } from 'ulid';
 import { z } from 'zod';
 import { doc, tableName } from '../lib/ddb';
 import { HttpError, json, parseBody, pathParam, userIdOf, type AuthedEvent } from '../lib/http';
-import { detectMediaType, toView, type MediaRecord } from '../lib/media';
+import { detectMediaType, startProcessing, toView, type MediaRecord } from '../lib/media';
 import { bucketName, s3, UPLOAD_URL_TTL } from '../lib/s3';
 
 /** Abandoned uploads disappear after this (matches the bucket's multipart cleanup rule). */
@@ -36,6 +36,7 @@ const createSchema = z.object({
   size: z.number().int().positive().max(MAX_UPLOAD_BYTES),
   mime: z.string().max(200).default(''),
   lastModified: z.number().int().positive().optional(),
+  timezoneOffset: z.number().int().min(-14 * 60).max(14 * 60).optional(),
 });
 
 const partsSchema = z.object({
@@ -89,6 +90,7 @@ export async function createUpload(event: AuthedEvent) {
     mime: contentType,
     size: body.size,
     takenAt,
+    takenAtOffset: body.timezoneOffset,
     uploadedAt: now.toISOString(),
     tags: [],
     albumIds: [],
@@ -195,6 +197,10 @@ export async function completeUpload(event: AuthedEvent) {
         },
         ReturnValues: 'ALL_NEW',
       }),
+    );
+    // Thumbnails + EXIF. If the invoke fails the item stays PROCESSING and can be retried.
+    await startProcessing(userId, mediaId).catch((err) =>
+      console.error(JSON.stringify({ msg: 'startProcessing failed', mediaId, error: String(err) })),
     );
     return json(200, toView(res.Attributes as MediaRecord));
   } catch (err) {
