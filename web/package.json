@@ -10,10 +10,11 @@
     "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
+    "@mypic/shared": "*",
+    "aws-amplify": "^6.22.2",
     "next": "16.4.5",
     "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "@mypic/shared": "*"
+    "react-dom": "19.3.0"
   },
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",

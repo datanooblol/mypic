@@ -1,10 +1,12 @@
-import { handler, json, userIdOf, type AuthedEvent } from '../lib/http';
+import type { MeResponse } from '@mypic/shared';
+import { json, userIdOf, type AuthedEvent } from '../lib/http';
 
-/** GET /me: who am I (placeholder; storage usage comes later). */
-export const main = handler(async (event: AuthedEvent) => {
-  const claims = event.requestContext.authorizer.jwt.claims;
-  return json(200, {
+/** GET /me: current user (storage usage comes later). */
+export async function getMe(event: AuthedEvent) {
+  const email = event.requestContext.authorizer.jwt.claims.email;
+  const body: MeResponse = {
     userId: userIdOf(event),
-    email: claims.email,
-  });
-});
+    email: typeof email === 'string' ? email : undefined,
+  };
+  return json(200, body);
+}

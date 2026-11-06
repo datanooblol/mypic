@@ -2,8 +2,10 @@ import type {
   APIGatewayProxyEventV2WithJWTAuthorizer,
   APIGatewayProxyResultV2,
 } from 'aws-lambda';
+import type { z } from 'zod';
 
 export type AuthedEvent = APIGatewayProxyEventV2WithJWTAuthorizer;
+export type Result = APIGatewayProxyResultV2;
 
 export class HttpError extends Error {
   constructor(
@@ -21,7 +23,7 @@ export function userIdOf(event: AuthedEvent): string {
   return sub;
 }
 
-export function json(statusCode: number, body: unknown): APIGatewayProxyResultV2 {
+export function json(statusCode: number, body: unknown): Result {
   return {
     statusCode,
     headers: { 'content-type': 'application/json' },
@@ -29,15 +31,27 @@ export function json(statusCode: number, body: unknown): APIGatewayProxyResultV2
   };
 }
 
-/** Wrap a handler: map HttpError to a response and hide unexpected errors. */
-export function handler<E>(fn: (event: E) => Promise<APIGatewayProxyResultV2>) {
-  return async (event: E): Promise<APIGatewayProxyResultV2> => {
-    try {
-      return await fn(event);
-    } catch (err) {
-      if (err instanceof HttpError) return json(err.statusCode, { message: err.message });
-      console.error(err);
-      return json(500, { message: 'Internal error' });
-    }
-  };
+/** Parse and validate a JSON body; 400 on failure. */
+export function parseBody<S extends z.ZodType>(event: AuthedEvent, schema: S): z.infer<S> {
+  let raw: unknown;
+  try {
+    const text = event.isBase64Encoded
+      ? Buffer.from(event.body ?? '', 'base64').toString('utf8')
+      : (event.body ?? '');
+    raw = text ? JSON.parse(text) : {};
+  } catch {
+    throw new HttpError(400, 'Invalid JSON body');
+  }
+  const parsed = schema.safeParse(raw);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    throw new HttpError(400, `Invalid request: ${issue?.path.join('.') || 'body'} ${issue?.message ?? ''}`.trim());
+  }
+  return parsed.data;
+}
+
+export function pathParam(event: AuthedEvent, name: string): string {
+  const value = event.pathParameters?.[name];
+  if (!value) throw new HttpError(400, `Missing path parameter: ${name}`);
+  return value;
 }
