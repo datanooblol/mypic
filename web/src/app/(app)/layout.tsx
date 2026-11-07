@@ -93,7 +93,10 @@ type NavVariant = 'top' | 'bottom';
 /** Reads the current path (inside Suspense: dynamic segments resolve at request time). */
 function ActiveNav({ variant }: { variant: NavVariant }) {
   const pathname = usePathname();
-  const active = NAV.find((n) => (n.href === '/' ? pathname === '/' : pathname.startsWith(n.href)))?.href ?? null;
+  // /album?id= and /tag?name= belong to the Albums and Tags tabs.
+  const section = (href: string) => (href === '/' ? href : href.replace(/s$/, ''));
+  const active =
+    NAV.find((n) => (n.href === '/' ? pathname === '/' : pathname.startsWith(section(n.href))))?.href ?? null;
   return <NavLinks active={active} variant={variant} />;
 }
 

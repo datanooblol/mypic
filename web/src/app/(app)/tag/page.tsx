@@ -1,8 +1,8 @@
 import { Suspense } from 'react';
-import { AlbumView } from './AlbumView';
+import { TagView } from './TagView';
 
-// Album IDs are only known at request time; the client view reads them inside Suspense.
-export default function AlbumPage() {
+/** /tag?name=… (query parameter; see album/page.tsx for why). */
+export default function TagPage() {
   return (
     <Suspense
       fallback={
@@ -11,7 +11,7 @@ export default function AlbumPage() {
         </div>
       }
     >
-      <AlbumView />
+      <TagView />
     </Suspense>
   );
 }

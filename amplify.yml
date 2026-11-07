@@ -1,0 +1,27 @@
+# Amplify Hosting build spec (monorepo: the Next.js app lives in web/).
+# The console's "monorepo root" must match appRoot (AMPLIFY_MONOREPO_APP_ROOT=web).
+# Per-branch environment variables (NEXT_PUBLIC_*) are set in the Amplify console
+# and inlined by `next build`; see README "Hosting on Amplify".
+version: 1
+applications:
+  - appRoot: web
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - nvm install 22 && nvm use 22
+            # npm workspaces: install from the repo root (one lockfile; web depends on shared/).
+            - (cd .. && npm ci --cache web/.npm --prefer-offline --no-audit --no-fund)
+        build:
+          commands:
+            - node -e "for (const k of ['NEXT_PUBLIC_USER_POOL_ID','NEXT_PUBLIC_USER_POOL_CLIENT_ID','NEXT_PUBLIC_API_URL']) if (!process.env[k]) { console.error('Missing env var ' + k + ' (set it in Amplify > Environment variables)'); process.exit(1) }"
+            - npm run build
+      artifacts:
+        # Static export (next.config.ts: output 'export')
+        baseDirectory: out
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - .npm/**/*
+          - .next/cache/**/*

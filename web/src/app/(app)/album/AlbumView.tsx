@@ -2,7 +2,7 @@
 
 import type { AlbumView as Album, MediaView, Page } from '@mypic/shared';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { buttonStyles, Dialog } from '@/components/Dialog';
 import { ArrowLeftIcon, TrashIcon } from '@/components/icons';
@@ -13,7 +13,7 @@ import { removeAlbum, upsertAlbum } from '@/lib/albums-store';
 import { deleteAlbum, getAlbum, plural, updateAlbum } from '@/lib/media';
 
 export function AlbumView() {
-  const { albumId } = useParams<{ albumId: string }>();
+  const albumId = useSearchParams().get('id') ?? '';
   const router = useRouter();
   const toast = useToast();
   const [album, setAlbum] = useState<Album | null>(null);

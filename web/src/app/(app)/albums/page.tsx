@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { buttonStyles, Dialog } from '@/components/Dialog';
 import { AlbumIcon, PlusIcon } from '@/components/icons';
 import { refreshAlbums, upsertAlbum, useAlbums } from '@/lib/albums-store';
-import { createAlbum, plural } from '@/lib/media';
+import { albumPath, createAlbum, plural } from '@/lib/media';
 
 export default function AlbumsPage() {
   const albums = useAlbums();
@@ -38,7 +38,7 @@ export default function AlbumsPage() {
       ) : (
         <div className="grid grid-cols-2 gap-x-3 gap-y-5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
           {albums.map((album) => (
-            <Link key={album.albumId} href={`/albums/${album.albumId}`} className="group">
+            <Link key={album.albumId} href={albumPath(album.albumId)} className="group">
               <div className="flex aspect-square items-center justify-center overflow-hidden rounded-lg bg-zinc-900 ring-1 ring-zinc-800">
                 {album.coverUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element -- signed CDN thumbnail

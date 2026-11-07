@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { useAlbums } from '@/lib/albums-store';
 import { formatBytes, formatOffset, formatTaken } from '@/lib/format';
-import { canRetry, downloadOriginal, reprocess, tagPath } from '@/lib/media';
+import { albumPath, canRetry, downloadOriginal, reprocess, tagPath } from '@/lib/media';
 import { useNow } from '@/lib/use-now';
 import {
   AlbumIcon,
@@ -321,7 +321,7 @@ function InfoPanel({ media, actions, onClose }: { media: MediaView; actions: Lig
       albumNames.length > 0 || actions.addToAlbum ? (
         <span key="albums" className="flex flex-wrap items-center gap-1.5">
           {albumNames.map((a) => (
-            <Link key={a.albumId} href={`/albums/${a.albumId}`} className="rounded-full bg-zinc-800 px-2.5 py-0.5 text-xs hover:bg-zinc-700">
+            <Link key={a.albumId} href={albumPath(a.albumId)} className="rounded-full bg-zinc-800 px-2.5 py-0.5 text-xs hover:bg-zinc-700">
               {a.name}
             </Link>
           ))}

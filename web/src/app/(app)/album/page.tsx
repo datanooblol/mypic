@@ -1,7 +1,11 @@
 import { Suspense } from 'react';
-import { TagView } from './TagView';
+import { AlbumView } from './AlbumView';
 
-export default function TagPage() {
+/**
+ * /album?id=… (a query parameter, not /albums/[id]: the app is a static export,
+ * which can't serve dynamic segments). The id is read on the client inside Suspense.
+ */
+export default function AlbumPage() {
   return (
     <Suspense
       fallback={
@@ -10,7 +14,7 @@ export default function TagPage() {
         </div>
       }
     >
-      <TagView />
+      <AlbumView />
     </Suspense>
   );
 }

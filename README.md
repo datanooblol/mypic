@@ -90,6 +90,31 @@ Cognito emails you a temporary password, and you set a new one at first sign-in.
 
 `dev` and `prod` are separate stacks (`-c stage=dev|prod`). In `dev`, data is **deleted** when the stack is destroyed. In `prod`, the bucket and table are kept and have deletion protection. Run `npm run keys -w infra -- prod` before the first `npm run deploy:prod -w infra`.
 
+### 4. Host the web app on Amplify
+
+The web app is a **static export** (`output: 'export'`), so Amplify serves plain files from its CDN with no server runtime. Album and tag pages use query parameters (`/album?id=…`, `/tag?name=…`) because static exports can't serve dynamic URL segments.
+
+1. Amplify console → **Create new app** → GitHub → your fork → branch `main`.
+2. Tick **"My app is a monorepo"** with root directory `web`. Leave **"Amplify Gen2 backend"** unticked. The build settings come from [`amplify.yml`](amplify.yml).
+3. After it's created, switch the app to static hosting (the console detects Next.js as SSR):
+   ```bash
+   aws amplify update-app --app-id <APP_ID> --platform WEB
+   aws amplify update-branch --app-id <APP_ID> --branch-name main --framework "Next.js - SSG"
+   ```
+4. **Environment variables**, per branch (App settings → Environment variables), using the values from `infra/cdk-outputs.<stage>.json`:
+
+   | Variable | Value |
+   |---|---|
+   | `NEXT_PUBLIC_STAGE` | `prod` (or `dev`) |
+   | `NEXT_PUBLIC_AWS_REGION` | `MyPic-<stage>-Auth.Region` |
+   | `NEXT_PUBLIC_USER_POOL_ID` | `MyPic-<stage>-Auth.UserPoolId` |
+   | `NEXT_PUBLIC_USER_POOL_CLIENT_ID` | `MyPic-<stage>-Auth.UserPoolClientId` |
+   | `NEXT_PUBLIC_API_URL` | `MyPic-<stage>-Api.ApiUrl` |
+
+5. Optional: add a `dev` branch pointing at the `dev` stack's values, so you can test on your phone before merging to `main`.
+
+Uploads from the hosted site work out of the box: the bucket's CORS rule allows `https://*.amplifyapp.com`. If you add a custom domain, add it to `webOrigins` in [`infra/lib/config.ts`](infra/lib/config.ts) and redeploy the Storage stack.
+
 ### Clean up
 
 ```bash

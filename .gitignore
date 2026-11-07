@@ -23,3 +23,4 @@ infra/keys/*.pem
 
 # Processing Lambda bundle (built during cdk synth)
 services/processing/dist/
+web/.npm/

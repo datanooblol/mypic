@@ -2,15 +2,14 @@
 
 import type { MediaView, Page } from '@mypic/shared';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { useCallback } from 'react';
 import { ArrowLeftIcon, TagIcon } from '@/components/icons';
 import { MediaGallery } from '@/components/MediaGallery';
 import { api } from '@/lib/api';
 
 export function TagView() {
-  const params = useParams<{ tag: string }>();
-  const tag = safeDecode(params.tag);
+  const tag = useSearchParams().get('name') ?? '';
 
   const fetchPage = useCallback(
     (cursor?: string) =>
@@ -37,12 +36,4 @@ export function TagView() {
       empty={<p className="py-24 text-center text-sm text-zinc-400">Nothing is tagged “{tag}”.</p>}
     />
   );
-}
-
-function safeDecode(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
 }

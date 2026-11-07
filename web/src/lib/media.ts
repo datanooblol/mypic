@@ -88,8 +88,13 @@ export async function listTags(): Promise<TagSummary[]> {
   return (await api<{ items: TagSummary[] }>('/tags')).items;
 }
 
+/** App routes use query parameters (static export: no dynamic segments). */
 export function tagPath(tag: string): string {
-  return `/tags/${encodeURIComponent(tag)}`;
+  return `/tag?name=${encodeURIComponent(tag)}`;
+}
+
+export function albumPath(albumId: string): string {
+  return `/album?id=${encodeURIComponent(albumId)}`;
 }
 
 /** "3 items" / "1 item" */
