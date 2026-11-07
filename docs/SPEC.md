@@ -124,6 +124,10 @@ Previously "MediaConvert completion". This is now part of the deferred video des
 ### 4.4 ZIP export (deferred)
 **Status:** not built. "Download selected" (§4.9) covers most bulk-download needs. Build this if users need whole albums as one file, which mostly matters on mobile and for very large selections.
 
+**Cheaper options to try first (browser-only, no backend):**
+- **ZIP in the browser:** fetch the originals with the existing `/media/download` links and pack them with `client-zip` (store mode, since photos are already compressed). Held in memory, so cap it at about 2 GB, splitting into parts or falling back to one-by-one downloads above that.
+- **Choose the destination (Chrome/Edge desktop):** the File System Access API. `showDirectoryPicker()` writes originals straight into a folder the user chooses (no ZIP, no multiple-downloads prompt). `showSaveFilePicker()` streams a ZIP to a chosen file. Both stream to disk, so there's no size limit. Firefox, Safari and phones would fall back to the options above or the share sheet.
+
 `POST /albums/{id}/zip` creates a ZipJob and invokes a zip Lambda asynchronously. That Lambda streams each original from S3 through `archiver` into an S3 multipart upload, which keeps memory use constant. The client polls `GET /zips/{jobId}` and then downloads with a presigned GET.
 - Limit: Lambda can run for at most 15 minutes. The v1 cap is about **20 GB per ZIP**; the API rejects anything larger and suggests downloading in parts. Moving the job to Fargate is the fix if this becomes a problem.
 
