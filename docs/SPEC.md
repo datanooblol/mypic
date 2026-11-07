@@ -13,7 +13,7 @@ Personal media storage for one owner and a few invited users. Stores photos (inc
 | Sharing | Public share links per album, with optional expiry and optional password |
 | Content | Photos (JPEG/PNG/HEIC/WebP), **RAW** (CR3, CR2, NEF, ARW, DNG, RAF, ORF, RW2), **video** |
 | RAW handling | Extract the **embedded JPEG preview** for display. The RAW file is the downloadable original. |
-| Video handling | MediaConvert transcodes to a **single 1080p H.264 MP4** plus a poster frame |
+| Video handling | **Deferred.** Videos are stored and downloadable, with no in-browser playback. Transcoding (MediaConvert, 1080p MP4 + poster) will be built only if more users request it. See §4.5. |
 | Organization | **Albums (many-to-many) + tags**. One file can be in several albums without being stored twice. |
 | v1 features | Bulk upload (resumable), EXIF parsing + sort by date taken, trash (30-day soft delete), download album as ZIP |
 | API | API Gateway **HTTP API** + Lambda (Node.js/TypeScript), Cognito JWT authorizer |
@@ -39,7 +39,7 @@ Personal media storage for one owner and a few invited users. Stores photos (inc
      │                 ▼
      │          Processing Lambda (container: sharp + heic-decode + exiftool)
      │            ├─ image/RAW → thumb.webp, preview.webp, EXIF → DynamoDB
-     │            └─ video     → MediaConvert job → mp4 + poster → DynamoDB
+     │            └─ video     → marked READY, download only (playback deferred, §4.5)
      │
      └────────────▶ CloudFront (signed URLs) ──▶ S3 derived/…   (view only)
                     S3 presigned GET (Content-Disposition) for original downloads
@@ -115,23 +115,34 @@ zips/{userId}/{jobId}.zip                  # temporary album exports
 Contains `sharp` (prebuilt libvips), `exiftool` (via `exiftool-vendored` + perl) and `heic-decode` (libheif WASM). Prebuilt sharp can't decode HEVC-based HEIC because of patent licensing, so HEIC goes through libheif. x86_64 avoids ARM emulation when building on most developer machines. Async retries: 2; final failures go to an SQS DLQ.
 - **Image (JPEG/PNG/WebP/HEIC):** read EXIF, apply rotation, write `thumb.webp` and `preview.webp`, save width, height, and EXIF fields, set `status=READY` and `derived=[...]`. Derived files have no metadata (GPS is stripped).
 - **RAW:** extract both `JpgFromRaw` and `PreviewImage` and use the larger. It then goes through the same steps as an image. EXIF, including orientation, is read from the RAW file itself.
-- **Video (M5):** `ffprobe` reads duration, dimensions, and creation time. Then a **MediaConvert** job is submitted (1080p MP4 plus a frame capture for the poster). The record stays `status=TRANSCODING`. *Until M5, videos are marked READY with no derived files (download only).*
+- **Video:** marked READY with no derived files. The original is downloadable, and the UI shows a video placeholder. Playback is deferred (§4.5).
 - Failures set `status=FAILED` with an error message, and the original is kept. The UI shows a retry option, which calls `POST /media/{id}/reprocess`.
 
-### 4.3 MediaConvert completion
-An EventBridge rule on `MediaConvert Job State Change` (COMPLETE/ERROR) runs a Lambda that sets the derived keys and `status=READY` or `FAILED`.
+### 4.3 (reserved)
+Previously "MediaConvert completion". This is now part of the deferred video design in §4.5.
 
 ### 4.4 ZIP export
 `POST /albums/{id}/zip` creates a ZipJob and invokes a zip Lambda asynchronously. That Lambda streams each original from S3 through `archiver` into an S3 multipart upload, which keeps memory use constant. The client polls `GET /zips/{jobId}` and then downloads with a presigned GET.
 - Limit: Lambda can run for at most 15 minutes. The v1 cap is about **20 GB per ZIP**; the API rejects anything larger and suggests downloading in parts. Moving the job to Fargate is the fix if this becomes a problem.
 
-### 4.5 Trash & purge
+### 4.5 Video playback (deferred)
+**Status:** not planned for the prototype. Build it only when more users request it. Until then, videos upload, organize, trash and download like photos, with no transcoding.
+
+The planned design, kept here so it's ready when needed:
+- The processing Lambda reads duration, dimensions and creation time with `ffprobe` (sets `takenAt` and `durationSec`), then submits an **AWS Elemental MediaConvert** job: one 1080p H.264/AAC MP4 (`derived/…/video.mp4`) and a frame capture (`derived/…/poster.jpg`). The record goes to `status=TRANSCODING`.
+- An EventBridge rule on `MediaConvert Job State Change` (COMPLETE/ERROR) runs a small Lambda that sets `derived` and `status=READY` or `FAILED`.
+- The web app uses the poster as the grid thumbnail with a duration badge, and the lightbox plays `video.mp4` in a native `<video>` element (`playsInline` for iOS). `toView` already signs `video.mp4` and `poster.jpg` URLs when they're listed in `derived`.
+- Existing videos are backfilled with `npm run reprocess -w infra -- <stage> --all`.
+- Cost: MediaConvert charges per output minute (about $0.015/min for 1080p at the basic tier; check current pricing). It's a one-time cost per video.
+- Infra: a MediaConvert IAM role (read `originals/*`, write `derived/*`), `mediaconvert:CreateJob` + `iam:PassRole` for the processing Lambda, and the EventBridge rule and Lambda.
+
+### 4.6 Trash & purge
 - Delete sets `deletedAt`, removes the GSI1 keys, adds the GSI2 keys and decrements its album and tag counters. Membership records stay, so a restore is lossless (counters go back up). Album and tag listings skip trashed items.
 - A daily **EventBridge rule** (19:00 UTC) runs the purge Lambda for items trashed more than 30 days ago. It finds them with a filtered table scan, which is cheap at personal scale and needs no extra index. "Empty trash" (`DELETE /trash`) async-invokes the same Lambda for one user's trash index.
 - **Purge order:** the media record is deleted first (conditionally on `deletedAt`), then membership records, then **every S3 version** of the original and derived files. Versioning is on, so a plain delete would keep the data. A concurrent restore wins, and a failure can only leave orphaned objects, never a record pointing at missing files.
 - `POST /media/{id}/restore` reverses a delete.
 
-### 4.6 Albums and tags
+### 4.7 Albums and tags
 - Adding or removing is one **DynamoDB transaction**: the membership record (conditional, which makes repeats harmless), the media's string set, and the counter. Albums must exist; tag summaries are created on first use.
 - Batch actions run items in parallel, and parallel transactions on one counter conflict. Conflicted transactions are retried with jittered backoff.
 - Membership sort keys include `takenAt`. When processing changes `takenAt` (EXIF), membership records are re-keyed.
@@ -198,7 +209,7 @@ Every handler gets `userId` from the JWT `sub` and builds keys from it. Request 
 
 ### Display
 - **Grid:** `thumb.webp` only, with `loading="lazy"` and a virtualized list (e.g. `@tanstack/react-virtual`) so thousands of items stay smooth. The grid has 3 columns on mobile and 6–8 on desktop.
-- **Lightbox:** `preview.webp`, with swipe on mobile and arrow keys on desktop, an EXIF info panel, and download and delete buttons. Videos play in a `<video>` element using `video.mp4` with `poster.jpg`.
+- **Lightbox:** `preview.webp`, with swipe on mobile and arrow keys on desktop, an EXIF info panel, and download and delete buttons. Videos show a placeholder with a download button (playback deferred, §4.5).
 - **Placeholders** while processing, with automatic refresh by polling items whose status is `PROCESSING` or `TRANSCODING`.
 - **Multi-select** (long-press on mobile, shift-click on desktop) for batch tag, album, and delete actions.
 - Signed URLs are valid for 6–12 hours. Refetching expired URLs on long-open tabs is planned for M7.
@@ -220,7 +231,7 @@ Every handler gets `userId` from the JWT `sub` and builds keys from it. Request 
 ### Stacks (per stage: `MyPic-dev-*`, `MyPic-prod-*`)
 1. **AuthStack**: User Pool, app client, `admin` group
 2. **StorageStack**: S3 bucket (versioning, lifecycle, CORS), DynamoDB table + GSIs, CloudFront distribution + key group
-3. **ProcessingStack**: processing Lambda (container image), MediaConvert IAM role, EventBridge rules, completion Lambda, zip Lambda, daily purge schedule
+3. **ProcessingStack**: processing Lambda (container image), retries + DLQ. The ZIP Lambda is planned here. MediaConvert resources are deferred (§4.5).
 4. **ApiStack**: HTTP API, JWT authorizer, route Lambdas, throttling
 5. **OpsStack**: CloudWatch alarms for Lambda errors and DLQ depth, SNS email topic
 
@@ -235,14 +246,14 @@ Account-wide (not per stage): **BudgetStack** (`MyPic-Budget`), a $10/month cost
 
 ## 9. Cost estimate (ap-southeast-1, rough; verify with the AWS Pricing Calculator)
 
-Assumes 300 GB of originals (RAW-heavy), about 30k items, 60 minutes of new video per month, and light traffic.
+Assumes 300 GB of originals (RAW-heavy), about 30k items, and light traffic.
 
 | Item | Est. / month |
 |---|---|
 | S3 originals in Intelligent-Tiering (most of the data ends up in Infrequent or Archive Instant Access tiers after 30–90 days) | ~$3–6 |
 | S3 derived files (about 15 GB) plus requests | ~$0.50 |
 | Intelligent-Tiering monitoring fee (30k objects) | ~$0.08 |
-| MediaConvert, 60 min of 1080p | ~$1–2 |
+| MediaConvert | $0 (video playback deferred; ~$0.015 per minute of video if built) |
 | DynamoDB on-demand, Lambda, API Gateway | < $1 (mostly free tier) |
 | CloudFront | ~$0 (1 TB/month always-free tier) |
 | Cognito (fewer than 50k monthly active users) | $0 |
@@ -259,9 +270,11 @@ Assumes 300 GB of originals (RAW-heavy), about 30k items, 60 minutes of new vide
 2. **M2 – Upload + list:** upload API (single + multipart), basic timeline listing, Next.js login + grid running locally against `dev`.
 3. **M3 – Processing:** container Lambda for images, HEIC, and RAW; EXIF; CloudFront signed URLs; lightbox.
 4. **M4 – Organization:** albums, tags, batch actions, trash + purge.
-5. **M5 – Video:** MediaConvert pipeline, video playback.
+5. **M5 – Video:** ⏸ **Deferred.** Built only if more users request it (design in §4.5). Videos are stored and downloadable meanwhile.
 6. **M6 – Sharing + ZIP:** share links (expiry and password), public view, ZIP export.
 7. **M7 – Ship:** Amplify Hosting CI/CD, `prod` stage, alarms, resumable upload polish.
+
+Done: M1–M4.
 
 ---
 
@@ -277,3 +290,4 @@ Assumes 300 GB of originals (RAW-heavy), about 30k items, 60 minutes of new vide
 - Duplicate detection (content hash on upload): v2.
 - Map view from GPS: v2.
 - Live Photos / Motion Photos: handled as a separate image and video in v1.
+- Video playback (transcoding + player): deferred until more users request it (§4.5).

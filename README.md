@@ -2,18 +2,23 @@
 
 Self-hosted photo and video storage that runs in **your own AWS account**. It's private by default and designed to cost a few dollars a month.
 
-> **Status: work in progress.** Done so far: infrastructure (auth, storage, CDN, budget alarm), the upload/list API, image processing (thumbnails, EXIF, HEIC, RAW previews), albums, tags and trash, and a web app with sign-in, bulk upload, a timeline, multi-select and a lightbox. Video playback comes next. See the [milestones](docs/SPEC.md#10-milestones).
+> **Status: work in progress.** Done so far: infrastructure (auth, storage, CDN, budget alarm), the upload/list API, image processing (thumbnails, EXIF, HEIC, RAW previews), albums, tags and trash, and a web app with sign-in, bulk upload, a timeline, multi-select and a lightbox. Sharing and ZIP export come next. Video playback is deferred (see below). See the [milestones](docs/SPEC.md#10-milestones).
 
 ## Features (planned for v1)
 
 - Albums (one photo can be in many albums) and tags
 - Bulk, resumable uploads straight to S3, up to 5 GB per file
 - RAW support (CR3, NEF, ARW, DNG, …) using the embedded JPEG preview
-- Video playback (transcoded to 1080p MP4 with MediaConvert)
 - Sorting by EXIF date taken, a 30-day trash, and album download as ZIP
 - Public share links with optional expiry and password
 - Invite-only accounts (Cognito), with optional authenticator-app MFA
 - Responsive web UI for desktop and mobile
+
+### Videos: stored, but no playback yet
+
+Videos can be uploaded, organized into albums and tags, trashed and downloaded like photos. The app doesn't transcode them or play them in the browser yet. They show as a video placeholder, and you download the original to watch it.
+
+In-browser playback (MediaConvert transcoding to MP4, poster thumbnails, a player in the lightbox) is **deferred until more users ask for it**. The design is already written up in [docs/SPEC.md](docs/SPEC.md#45-video-playback-deferred). If you want it, please open an issue.
 
 ## Architecture
 
@@ -21,8 +26,8 @@ Self-hosted photo and video storage that runs in **your own AWS account**. It's 
 Next.js (Amplify Hosting) ─▶ API Gateway + Lambda ─▶ DynamoDB (metadata)
         │                                │
         ├── presigned upload ──────────▶ S3 (originals, Intelligent-Tiering)
-        │                                │ ObjectCreated → processing Lambda / MediaConvert
-        └── signed URLs ─▶ CloudFront ─▶ S3 (thumbnails, previews, video)
+        │                                │ upload complete → processing Lambda (thumbnails, EXIF)
+        └── signed URLs ─▶ CloudFront ─▶ S3 (thumbnails, previews)
 ```
 
 Full design: [docs/SPEC.md](docs/SPEC.md).
