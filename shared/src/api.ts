@@ -49,3 +49,59 @@ export interface MeResponse {
 
 /** Max part URLs per /parts request. */
 export const MAX_PART_URLS_PER_REQUEST = 100;
+
+/** Album as returned to clients, with a signed cover thumbnail. */
+export interface AlbumView {
+  albumId: string;
+  name: string;
+  description?: string;
+  coverMediaId?: string;
+  coverUrl?: string;
+  itemCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateAlbumRequest {
+  name: string;
+  description?: string;
+}
+
+export interface UpdateAlbumRequest {
+  name?: string;
+  description?: string;
+  coverMediaId?: string;
+}
+
+export interface TagSummary {
+  tag: string;
+  count: number;
+}
+
+export type BatchAction =
+  | 'trash'
+  | 'restore'
+  | 'purge'
+  | 'addToAlbum'
+  | 'removeFromAlbum'
+  | 'addTags'
+  | 'removeTags';
+
+export interface BatchRequest {
+  action: BatchAction;
+  mediaIds: string[];
+  /** For addToAlbum / removeFromAlbum. */
+  albumId?: string;
+  /** For addTags / removeTags. */
+  tags?: string[];
+}
+
+export interface BatchResponse {
+  succeeded: string[];
+  failed: { mediaId: string; message: string }[];
+}
+
+/** Max items per batch request (the web app sends larger selections in chunks). */
+export const MAX_BATCH_ITEMS = 100;
+/** Items stay in the trash this long before being purged automatically. */
+export const TRASH_RETENTION_DAYS = 30;

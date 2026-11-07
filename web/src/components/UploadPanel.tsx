@@ -26,7 +26,7 @@ export function UploadPanel() {
       : 'Uploads complete';
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-40 sm:inset-x-auto sm:bottom-4 sm:right-4 sm:w-96">
+    <div className="fixed inset-x-0 bottom-14 z-40 sm:inset-x-auto sm:bottom-4 sm:right-4 sm:w-96">
       <div className="overflow-hidden border border-zinc-800 bg-zinc-900 shadow-2xl sm:rounded-xl">
         {notice && (
           <div className="flex items-start gap-2 border-b border-zinc-800 bg-amber-950/60 px-4 py-2 text-xs text-amber-200">

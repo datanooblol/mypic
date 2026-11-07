@@ -85,10 +85,11 @@ zips/{userId}/{jobId}.zip                  # temporary album exports
 
 | Entity | PK | SK | Notes |
 |---|---|---|---|
-| Media | `USER#{uid}` | `MEDIA#{mediaId}` | type (`image`/`raw`/`video`), status, s3 keys, size, mime, width/height, duration, exif{}, takenAt, tags[], albumIds[], deletedAt? |
+| Media | `USER#{uid}` | `MEDIA#{mediaId}` | type (`image`/`raw`/`video`), status, s3 keys, size, mime, width/height, duration, exif{}, takenAt, takenAtOffset, tags (string set), albumIds (string set), deletedAt? |
 | Album | `USER#{uid}` | `ALBUM#{albumId}` | name, description, coverMediaId, itemCount, createdAt |
 | Album item | `ALBUM#{albumId}` | `ITEM#{takenAt}#{mediaId}` | Membership record, sorted by date |
 | Tag item | `USER#{uid}#TAG#{tag}` | `ITEM#{takenAt}#{mediaId}` | Membership record |
+| Tag summary | `USER#{uid}` | `TAG#{tag}` | tag, count (deleted when it reaches 0) |
 | Share link | `SHARE#{token}` | `META` | albumId, ownerId, expiresAt (DynamoDB TTL), passwordHash? |
 | Zip job | `USER#{uid}` | `ZIP#{jobId}` | status, s3Key, TTL 1 day |
 
@@ -125,9 +126,17 @@ An EventBridge rule on `MediaConvert Job State Change` (COMPLETE/ERROR) runs a L
 - Limit: Lambda can run for at most 15 minutes. The v1 cap is about **20 GB per ZIP**; the API rejects anything larger and suggests downloading in parts. Moving the job to Fargate is the fix if this becomes a problem.
 
 ### 4.5 Trash & purge
-- Delete sets `deletedAt`, removes the GSI1 keys, and adds the GSI2 keys. Album and tag membership records stay so that a restore is lossless. Listing queries skip trashed items.
-- A daily **EventBridge Scheduler** job runs a purge Lambda that permanently deletes items trashed more than 30 days ago: the S3 originals and derived files plus all DynamoDB records.
-- `POST /media/{id}/restore` reverses a delete. "Empty trash" purges immediately.
+- Delete sets `deletedAt`, removes the GSI1 keys, adds the GSI2 keys and decrements its album and tag counters. Membership records stay, so a restore is lossless (counters go back up). Album and tag listings skip trashed items.
+- A daily **EventBridge rule** (19:00 UTC) runs the purge Lambda for items trashed more than 30 days ago. It finds them with a filtered table scan, which is cheap at personal scale and needs no extra index. "Empty trash" (`DELETE /trash`) async-invokes the same Lambda for one user's trash index.
+- **Purge order:** the media record is deleted first (conditionally on `deletedAt`), then membership records, then **every S3 version** of the original and derived files. Versioning is on, so a plain delete would keep the data. A concurrent restore wins, and a failure can only leave orphaned objects, never a record pointing at missing files.
+- `POST /media/{id}/restore` reverses a delete.
+
+### 4.6 Albums and tags
+- Adding or removing is one **DynamoDB transaction**: the membership record (conditional, which makes repeats harmless), the media's string set, and the counter. Albums must exist; tag summaries are created on first use.
+- Batch actions run items in parallel, and parallel transactions on one counter conflict. Conflicted transactions are retried with jittered backoff.
+- Membership sort keys include `takenAt`. When processing changes `takenAt` (EXIF), membership records are re-keyed.
+- Tags are normalized: NFC, trimmed, lowercased, any script's letters and digits plus space, `-` and `_`, up to 40 characters, and up to 30 tags per item.
+- Deleting an album removes its memberships and the album id from each item. The photos stay.
 
 ---
 

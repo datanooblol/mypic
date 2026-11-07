@@ -81,3 +81,57 @@ export const InfoIcon = ({ className }: IconProps) => (
     <path d="M12 11v5M12 8h.01" />
   </svg>
 );
+
+export const CheckIcon = ({ className }: IconProps) => (
+  <svg {...base} strokeWidth={2.5} className={className}>
+    <path d="m5 12 5 5 9-10" />
+  </svg>
+);
+
+export const TrashIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12M9 7V4h6v3" />
+  </svg>
+);
+
+export const RestoreIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5" />
+  </svg>
+);
+
+export const AlbumIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <rect x="3" y="6" width="14" height="14" rx="2" />
+    <path d="M7 3h12a2 2 0 0 1 2 2v12" />
+    <path d="m3 16 4-4 5 5" />
+  </svg>
+);
+
+export const TagIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z" />
+    <circle cx="7.5" cy="7.5" r="1.5" />
+  </svg>
+);
+
+export const PlusIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+);
+
+export const PhotosIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <rect x="3" y="3" width="7" height="7" rx="1.5" />
+    <rect x="14" y="3" width="7" height="7" rx="1.5" />
+    <rect x="3" y="14" width="7" height="7" rx="1.5" />
+    <rect x="14" y="14" width="7" height="7" rx="1.5" />
+  </svg>
+);
+
+export const StarIcon = ({ className }: IconProps) => (
+  <svg {...base} className={className}>
+    <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z" />
+  </svg>
+);

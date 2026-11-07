@@ -1,11 +1,14 @@
 'use client';
 
 import { extensionOf, type MediaView } from '@mypic/shared';
+import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
+import { useAlbums } from '@/lib/albums-store';
 import { formatBytes, formatOffset, formatTaken } from '@/lib/format';
-import { canRetry, downloadOriginal, reprocess } from '@/lib/media';
+import { canRetry, downloadOriginal, reprocess, tagPath } from '@/lib/media';
 import { useNow } from '@/lib/use-now';
 import {
+  AlbumIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
   CloseIcon,
@@ -13,12 +16,24 @@ import {
   ImageIcon,
   InfoIcon,
   RawIcon,
+  RestoreIcon,
   RetryIcon,
+  TagIcon,
+  TrashIcon,
   VideoIcon,
 } from './icons';
 
 const TYPE_ICON = { image: ImageIcon, raw: RawIcon, video: VideoIcon };
 const SWIPE_PX = 50;
+
+/** Context-specific actions (timeline/album/tag vs trash). */
+export interface LightboxActions {
+  trash?: (media: MediaView) => void;
+  restore?: (media: MediaView) => void;
+  purge?: (media: MediaView) => void;
+  editTags?: (media: MediaView) => void;
+  addToAlbum?: (media: MediaView) => void;
+}
 
 interface LightboxProps {
   items: MediaView[];
@@ -29,9 +44,10 @@ interface LightboxProps {
   onChange: (media: MediaView) => void;
   /** Close to the end of the loaded items: load the next page. */
   onNearEnd: () => void;
+  actions: LightboxActions;
 }
 
-export function Lightbox({ items, mediaId, onSelect, onClose, onChange, onNearEnd }: LightboxProps) {
+export function Lightbox({ items, mediaId, onSelect, onClose, onChange, onNearEnd, actions }: LightboxProps) {
   const index = items.findIndex((m) => m.mediaId === mediaId);
   const media = items[index];
   const prev = index > 0 ? items[index - 1] : undefined;
@@ -46,6 +62,8 @@ export function Lightbox({ items, mediaId, onSelect, onClose, onChange, onNearEn
   // Keyboard: Esc closes, arrows navigate, "i" toggles info.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // A dialog on top (tags, album picker) or a text field owns the keyboard.
+      if (document.querySelector('dialog[open]') || (e.target as HTMLElement)?.closest?.('input, textarea')) return;
       if (e.key === 'Escape') onClose();
       else if (e.key === 'ArrowLeft' && prev) onSelect(prev.mediaId);
       else if (e.key === 'ArrowRight' && next) onSelect(next.mediaId);
@@ -175,12 +193,32 @@ export function Lightbox({ items, mediaId, onSelect, onClose, onChange, onNearEn
               <RetryIcon className="size-5" />
             </IconButton>
           )}
+          {actions.restore && (
+            <IconButton label="Restore" onClick={() => actions.restore!(media)}>
+              <RestoreIcon className="size-5" />
+            </IconButton>
+          )}
+          {actions.purge && (
+            <IconButton label="Delete forever" onClick={() => actions.purge!(media)}>
+              <TrashIcon className="size-5 text-red-300" />
+            </IconButton>
+          )}
+          {actions.addToAlbum && (
+            <IconButton label="Add to album" onClick={() => actions.addToAlbum!(media)}>
+              <AlbumIcon className="size-5" />
+            </IconButton>
+          )}
           <IconButton label="Info" onClick={() => setShowInfo((s) => !s)} active={showInfo}>
             <InfoIcon className="size-5" />
           </IconButton>
           <IconButton label="Download original" onClick={() => void run('download')} disabled={busy !== null}>
             <DownloadIcon className={`size-5 ${busy === 'download' ? 'animate-pulse' : ''}`} />
           </IconButton>
+          {actions.trash && (
+            <IconButton label="Move to trash" onClick={() => actions.trash!(media)}>
+              <TrashIcon className="size-5" />
+            </IconButton>
+          )}
         </div>
 
         {/* Prev / next (desktop; mobile uses swipe) */}
@@ -204,7 +242,7 @@ export function Lightbox({ items, mediaId, onSelect, onClose, onChange, onNearEn
         )}
       </div>
 
-      {showInfo && <InfoPanel media={media} onClose={() => setShowInfo(false)} />}
+      {showInfo && <InfoPanel media={media} actions={actions} onClose={() => setShowInfo(false)} />}
     </div>
   );
 }
@@ -236,7 +274,9 @@ function IconButton({
 }
 
 /** Side panel on desktop, bottom sheet on mobile. */
-function InfoPanel({ media, onClose }: { media: MediaView; onClose: () => void }) {
+function InfoPanel({ media, actions, onClose }: { media: MediaView; actions: LightboxActions; onClose: () => void }) {
+  const albums = useAlbums();
+  const albumNames = (albums ?? []).filter((a) => media.albumIds.includes(a.albumId));
   const e = media.exif ?? {};
   const camera = [e.make, e.model].filter(Boolean).join(' ');
   const settings = [
@@ -275,6 +315,40 @@ function InfoPanel({ media, onClose }: { media: MediaView; onClose: () => void }
           {e.gps.lat.toFixed(5)}, {e.gps.lon.toFixed(5)}
         </a>
       ),
+    ],
+    [
+      'Albums',
+      albumNames.length > 0 || actions.addToAlbum ? (
+        <span key="albums" className="flex flex-wrap items-center gap-1.5">
+          {albumNames.map((a) => (
+            <Link key={a.albumId} href={`/albums/${a.albumId}`} className="rounded-full bg-zinc-800 px-2.5 py-0.5 text-xs hover:bg-zinc-700">
+              {a.name}
+            </Link>
+          ))}
+          {actions.addToAlbum && (
+            <button onClick={() => actions.addToAlbum!(media)} className="text-xs text-sky-400 hover:underline">
+              {albumNames.length ? 'Add' : 'Add to album'}
+            </button>
+          )}
+        </span>
+      ) : null,
+    ],
+    [
+      'Tags',
+      media.tags.length > 0 || actions.editTags ? (
+        <span key="tags" className="flex flex-wrap items-center gap-1.5">
+          {media.tags.map((t) => (
+            <Link key={t} href={tagPath(t)} className="flex items-center gap-1 rounded-full bg-zinc-800 px-2.5 py-0.5 text-xs hover:bg-zinc-700">
+              <TagIcon className="size-3" /> {t}
+            </Link>
+          ))}
+          {actions.editTags && (
+            <button onClick={() => actions.editTags!(media)} className="text-xs text-sky-400 hover:underline">
+              {media.tags.length ? 'Edit' : 'Add tags'}
+            </button>
+          )}
+        </span>
+      ) : null,
     ],
     ['Status', media.status === 'FAILED' ? <span className="text-red-400">Failed: {media.error}</span> : media.status !== 'READY' ? 'Processing' : null],
   ];

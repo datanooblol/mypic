@@ -10,6 +10,8 @@ export const ddb = {
   albumItemsPk: (albumId: string) => `ALBUM#${albumId}`,
   tagItemsPk: (uid: string, tag: string) => `USER#${uid}#TAG#${tag.toLowerCase()}`,
   item: (takenAt: string, mediaId: string) => `ITEM#${takenAt}#${mediaId}`,
+  /** Per-user tag summary (count) under the user partition. */
+  tagSummary: (tag: string) => `TAG#${tag}`,
   share: (token: string) => `SHARE#${token}`,
   zip: (jobId: string) => `ZIP#${jobId}`,
   /** GSI1: timeline (sparse, only non-trashed media). */

@@ -15,6 +15,7 @@ import { ddb, extensionOf, s3Keys, type DerivedKind, type ExifSummary } from '@m
 import { ExifTool, type Tags } from 'exiftool-vendored';
 import { doc, tableName } from '../lib/ddb';
 import type { MediaRecord, ProcessRequest } from '../lib/media';
+import { rekeyMemberships } from '../lib/membership';
 import { bucketName, s3 } from '../lib/s3';
 import { exifSummaryFrom, orientationFrom, takenAtFrom } from './exif';
 import { render } from './image';
@@ -140,6 +141,8 @@ interface ReadyUpdate {
 
 async function markReady(record: MediaRecord, update: ReadyUpdate) {
   const takenAt = update.takenAt ?? record.takenAt;
+  // Album/tag membership records are sorted by takenAt; move them to the new key.
+  await rekeyMemberships(record, takenAt);
   const set: Record<string, unknown> = {
     status: 'READY',
     derived: update.derived,

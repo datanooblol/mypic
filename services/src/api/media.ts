@@ -1,13 +1,13 @@
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
-import { GetCommand, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { ddb, type DownloadResponse, type MediaView, type Page } from '@mypic/shared';
 import { cdnUrlsFor } from '../lib/cdn';
 import { decodeCursor, encodeCursor } from '../lib/cursor';
 import { doc, tableName } from '../lib/ddb';
 import { HttpError, json, pathParam, userIdOf, type AuthedEvent } from '../lib/http';
-import { attachmentDisposition, startProcessing, toView, type MediaRecord } from '../lib/media';
+import { attachmentDisposition, getMediaRecord, startProcessing, toView, type MediaRecord } from '../lib/media';
 import { bucketName, DOWNLOAD_URL_TTL, s3 } from '../lib/s3';
 
 const DEFAULT_LIMIT = 60;
@@ -45,14 +45,14 @@ export async function listMedia(event: AuthedEvent) {
 /** GET /media/{mediaId}: one item with signed URLs (used to poll processing status). */
 export async function getMedia(event: AuthedEvent) {
   const userId = userIdOf(event);
-  const record = await getRecord(userId, pathParam(event, 'mediaId'));
+  const record = await getMediaRecord(userId, pathParam(event, 'mediaId'));
   return json(200, toView(record, await cdnUrlsFor(userId)));
 }
 
 /** GET /media/{mediaId}/download: short-lived link to the original file. */
 export async function downloadMedia(event: AuthedEvent) {
   const userId = userIdOf(event);
-  const record = await getRecord(userId, pathParam(event, 'mediaId'));
+  const record = await getMediaRecord(userId, pathParam(event, 'mediaId'));
   const url = await getSignedUrl(
     s3,
     new GetObjectCommand({
@@ -87,16 +87,4 @@ export async function reprocessMedia(event: AuthedEvent) {
     if (err instanceof ConditionalCheckFailedException) throw new HttpError(404, 'Not found');
     throw err;
   }
-}
-
-async function getRecord(userId: string, mediaId: string): Promise<MediaRecord> {
-  const res = await doc.send(
-    new GetCommand({
-      TableName: tableName(),
-      Key: { pk: ddb.user(userId), sk: ddb.media(mediaId) },
-    }),
-  );
-  const record = res.Item as MediaRecord | undefined;
-  if (!record || record.status === 'UPLOADING') throw new HttpError(404, 'Not found');
-  return record;
 }

@@ -2,7 +2,7 @@
 
 Self-hosted photo and video storage that runs in **your own AWS account**. It's private by default and designed to cost a few dollars a month.
 
-> **Status: work in progress.** Done so far: infrastructure (auth, storage, CDN, budget alarm), the upload/list API, image processing (thumbnails, EXIF, HEIC, RAW previews), and a web app with sign-in, bulk upload, a timeline and a lightbox. Albums and tags come next. See the [milestones](docs/SPEC.md#10-milestones).
+> **Status: work in progress.** Done so far: infrastructure (auth, storage, CDN, budget alarm), the upload/list API, image processing (thumbnails, EXIF, HEIC, RAW previews), albums, tags and trash, and a web app with sign-in, bulk upload, a timeline, multi-select and a lightbox. Video playback comes next. See the [milestones](docs/SPEC.md#10-milestones).
 
 ## Features (planned for v1)
 

@@ -217,7 +217,7 @@ describe('GET /media', () => {
     ddbMock.on(QueryCommand).resolves({ Items: [{ ...last, mediaId: 'm1' }], LastEvaluatedKey: last });
     const res = await handler(event('GET /media', { queryStringParameters: { limit: '500' } }));
     const body = parse(res);
-    expect(body.items).toEqual([{ mediaId: 'm1' }]);
+    expect(body.items).toEqual([{ mediaId: 'm1', tags: [], albumIds: [] }]);
     expect(body.cursor).toBe(encodeCursor(last));
     const input = ddbMock.commandCalls(QueryCommand)[0]!.args[0].input;
     expect(input).toMatchObject({ IndexName: 'GSI1', ScanIndexForward: false, Limit: 100 });

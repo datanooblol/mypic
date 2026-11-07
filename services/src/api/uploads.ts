@@ -92,8 +92,6 @@ export async function createUpload(event: AuthedEvent) {
     takenAt,
     takenAtOffset: body.timezoneOffset,
     uploadedAt: now.toISOString(),
-    tags: [],
-    albumIds: [],
     s3Key,
     uploadId,
     partCount,
