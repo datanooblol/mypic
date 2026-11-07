@@ -257,6 +257,33 @@ describe('API', () => {
     expect(body.items.map((m: { mediaId: string }) => m.mediaId)).toEqual(['m2', 'm1']);
   });
 
+  it('download selected returns attachment links in request order and reports missing items', async () => {
+    ddbMock.on(BatchGetCommand).resolves({
+      Responses: {
+        table: [
+          record({ mediaId: 'm2', filename: 'b.CR3', s3Key: 'originals/u1/m2/b.CR3' }),
+          record({ mediaId: 'm1' }),
+          record({ mediaId: 'm3', status: 'UPLOADING' }),
+        ],
+      },
+    });
+    const res = parse(await handler(event('POST /media/download', { json: { mediaIds: ['m1', 'm2', 'm3', 'm4'] } })));
+    expect(res.items.map((i: { mediaId: string }) => i.mediaId)).toEqual(['m1', 'm2']);
+    expect(res.failed).toEqual([
+      { mediaId: 'm3', message: 'Not found' },
+      { mediaId: 'm4', message: 'Not found' },
+    ]);
+    const url = new URL(res.items[1].url);
+    expect(url.pathname).toBe('/originals/u1/m2/b.CR3');
+    expect(url.searchParams.get('X-Amz-Expires')).toBe('900');
+    expect(url.searchParams.get('response-content-disposition')).toContain('filename="b.CR3"');
+    // keys are always scoped to the caller
+    const keys = ddbMock.commandCalls(BatchGetCommand)[0]!.args[0].input.RequestItems!.table!.Keys!;
+    expect(keys.every((k) => k.pk === 'USER#u1')).toBe(true);
+
+    expect(status(await handler(event('POST /media/download', { json: { mediaIds: [] } })))).toBe(400);
+  });
+
   it('empty trash hands off to the purge job', async () => {
     const res = await handler(event('DELETE /trash'));
     expect(status(res)).toBe(202);

@@ -3,7 +3,7 @@
  * routing is by the route key ("METHOD /path/{param}") defined in infra ApiStack.
  */
 import { HttpError, json, type AuthedEvent, type Result } from '../lib/http';
-import { downloadMedia, getMedia, listMedia, reprocessMedia } from './media';
+import { downloadMany, downloadMedia, getMedia, listMedia, reprocessMedia } from './media';
 import { createAlbum, deleteAlbum, getAlbumView, listAlbumItems, listAlbums, updateAlbum } from './albums';
 import { getMe } from './me';
 import { listTagItems, listTags } from './tags';
@@ -25,6 +25,7 @@ export const routes: Record<string, Route> = {
   'DELETE /media/{mediaId}': trashOne,
   'POST /media/{mediaId}/restore': restoreOne,
   'POST /media/batch': batch,
+  'POST /media/download': downloadMany,
   'GET /trash': listTrash,
   'DELETE /trash': emptyTrash,
   'GET /albums': listAlbums,

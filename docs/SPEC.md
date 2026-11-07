@@ -10,12 +10,12 @@ Personal media storage for one owner and a few invited users. Stores photos (inc
 |---|---|
 | Users | Owner plus a few invited users. No self sign-up. Each user's library is private. |
 | Auth | Cognito User Pool, MFA optional (TOTP) |
-| Sharing | Public share links per album, with optional expiry and optional password |
+| Sharing | **Deferred** until we study how users share links (see §4.8). "Download selected" covers sending files for now. |
 | Content | Photos (JPEG/PNG/HEIC/WebP), **RAW** (CR3, CR2, NEF, ARW, DNG, RAF, ORF, RW2), **video** |
 | RAW handling | Extract the **embedded JPEG preview** for display. The RAW file is the downloadable original. |
 | Video handling | **Deferred.** Videos are stored and downloadable, with no in-browser playback. Transcoding (MediaConvert, 1080p MP4 + poster) will be built only if more users request it. See §4.5. |
 | Organization | **Albums (many-to-many) + tags**. One file can be in several albums without being stored twice. |
-| v1 features | Bulk upload (resumable), EXIF parsing + sort by date taken, trash (30-day soft delete), download album as ZIP |
+| v1 features | Bulk upload, EXIF parsing + sort by date taken, trash (30-day soft delete), **download selected** (ZIP export deferred, §4.4) |
 | API | API Gateway **HTTP API** + Lambda (Node.js/TypeScript), Cognito JWT authorizer |
 | Region / budget | `ap-southeast-1`, target **< $10/month**, with an AWS Budget alarm |
 | Environments | `dev` and `prod` CDK stages, S3 versioning on |
@@ -121,7 +121,9 @@ Contains `sharp` (prebuilt libvips), `exiftool` (via `exiftool-vendored` + perl)
 ### 4.3 (reserved)
 Previously "MediaConvert completion". This is now part of the deferred video design in §4.5.
 
-### 4.4 ZIP export
+### 4.4 ZIP export (deferred)
+**Status:** not built. "Download selected" (§4.9) covers most bulk-download needs. Build this if users need whole albums as one file, which mostly matters on mobile and for very large selections.
+
 `POST /albums/{id}/zip` creates a ZipJob and invokes a zip Lambda asynchronously. That Lambda streams each original from S3 through `archiver` into an S3 multipart upload, which keeps memory use constant. The client polls `GET /zips/{jobId}` and then downloads with a presigned GET.
 - Limit: Lambda can run for at most 15 minutes. The v1 cap is about **20 GB per ZIP**; the API rejects anything larger and suggests downloading in parts. Moving the job to Fargate is the fix if this becomes a problem.
 
@@ -149,6 +151,23 @@ The planned design, kept here so it's ready when needed:
 - Tags are normalized: NFC, trimmed, lowercased, any script's letters and digits plus space, `-` and `_`, up to 40 characters, and up to 30 tags per item.
 - Deleting an album removes its memberships and the album id from each item. The photos stay.
 
+### 4.8 Share links (deferred)
+**Status:** not built. Before designing public links, study how users actually share:
+- Who receives shares: family in group chats, one-to-one, or people who already have accounts?
+- Through which channels (LINE, Messenger, email…), and do they need link previews?
+- Do people want expiry and passwords, or would they skip them?
+- Is a view-only page enough, or do recipients mainly want to download the originals?
+
+Until then, people can be invited as users, or the owner can use "Download selected" and send the files.
+
+Draft design (to revisit after the research): a `SHARE#{token}` record (128-bit random token, albumId, ownerId, optional `expiresAt` via DynamoDB TTL, optional argon2/bcrypt password hash); public, rate-limited endpoints that return the album's items with short-lived signed URLs; a `/s/[token]` page with no login. GPS is already stripped from derived images.
+
+### 4.9 Download selected
+- `POST /media/download` returns presigned GETs (`Content-Disposition: attachment`, valid 15 minutes) for up to 100 items, in request order, with per-item failures. The web app requests links **just in time, 10 at a time**, so none expire while queued.
+- **Desktop:** downloads start one after another, 700 ms apart. Browsers ask once to allow multiple downloads.
+- **Phones** (coarse pointer + `navigator.canShare({files})`): the app fetches the originals (with byte progress), then a **Save** button calls `navigator.share({ files })`, so the user can choose *Save to Photos* or *Files*. It's two steps because `share()` needs a fresh tap. Selections over 300 MB or 60 files fall back to one-by-one downloads.
+- The phone path needs bucket CORS for `GET` from the web app's origin, which is already configured.
+
 ---
 
 ## 5. API (HTTP API, JWT authorizer unless marked public)
@@ -165,18 +184,19 @@ The planned design, kept here so it's ready when needed:
 | POST | `/media/{id}/restore` | Restore from trash |
 | POST | `/media/{id}/reprocess` | Retry processing after a failure |
 | GET | `/media/{id}/download` | Presigned GET for the original (`Content-Disposition: attachment`) |
-| POST | `/media/batch` | Batch actions: delete, tag, add to or remove from an album |
+| POST | `/media/download` | Links to up to 100 originals at once ("Download selected"), in request order, valid 15 minutes |
+| POST | `/media/batch` | Batch actions: trash, restore, purge, tag, add to or remove from an album |
 | GET | `/trash?cursor=` | List trashed items |
 | DELETE | `/trash` | Empty the trash |
 | GET/POST | `/albums` | List or create albums |
 | GET/PATCH/DELETE | `/albums/{id}` | Read, update, or delete an album (deleting an album does not delete its media) |
 | GET | `/albums/{id}/items?cursor=` | Album contents |
-| POST | `/albums/{id}/zip` | Start a ZIP export |
-| GET | `/zips/{jobId}` | ZIP job status and download URL |
 | GET | `/tags` / `/tags/{tag}/items` | Tag list and tag contents |
-| POST/GET/DELETE | `/albums/{id}/shares` | Manage share links |
-| GET | `/public/shares/{token}` *(public)* | Share metadata (whether a password is required) |
-| POST | `/public/shares/{token}/items` *(public)* | Album items with signed URLs. The body carries the password if one is set. Rate-limited. |
+| *(deferred)* POST | `/albums/{id}/zip` | Start a ZIP export (§4.4) |
+| *(deferred)* GET | `/zips/{jobId}` | ZIP job status and download URL |
+| *(deferred)* POST/GET/DELETE | `/albums/{id}/shares` | Manage share links (§4.8) |
+| *(deferred)* GET | `/public/shares/{token}` *(public)* | Share metadata (whether a password is required) |
+| *(deferred)* POST | `/public/shares/{token}/items` *(public)* | Album items with signed URLs. The body carries the password if one is set. Rate-limited. |
 | GET | `/me` | Profile and storage usage |
 
 Every handler gets `userId` from the JWT `sub` and builds keys from it. Request bodies are never trusted to say whose data is being accessed.
@@ -189,7 +209,7 @@ Every handler gets `userId` from the JWT `sub` and builds keys from it. Request 
 - MFA: **optional**, TOTP (authenticator app). Users set it up on the Settings page. SMS is not used, to avoid SMS costs.
 - An `admin` group for the owner. It is reserved for future admin pages.
 - Frontend uses the `aws-amplify` v6 **Auth category only**, configured from the CDK outputs (user pool ID and client ID). Tokens are kept in the browser, and the API is called with `Authorization: Bearer <idToken|accessToken>`.
-- Share links: the token is 128-bit random. The password is hashed with argon2/bcrypt. The public share endpoints are throttled at the API Gateway route level.
+- Share links (deferred, §4.8): the token would be 128-bit random, the password hashed with argon2/bcrypt, and the public share endpoints throttled at the API Gateway route level.
 
 ---
 
@@ -271,10 +291,10 @@ Assumes 300 GB of originals (RAW-heavy), about 30k items, and light traffic.
 3. **M3 – Processing:** container Lambda for images, HEIC, and RAW; EXIF; CloudFront signed URLs; lightbox.
 4. **M4 – Organization:** albums, tags, batch actions, trash + purge.
 5. **M5 – Video:** ⏸ **Deferred.** Built only if more users request it (design in §4.5). Videos are stored and downloadable meanwhile.
-6. **M6 – Sharing + ZIP:** share links (expiry and password), public view, ZIP export.
+6. **M6 – Download selected:** ✅ batch download links, sequential downloads on desktop, share-sheet saving on phones (§4.9). *Share links and ZIP export were split out and deferred* (§4.8, §4.4).
 7. **M7 – Ship:** Amplify Hosting CI/CD, `prod` stage, alarms, resumable upload polish.
 
-Done: M1–M4.
+Done: M1–M4, M6.
 
 ---
 
@@ -291,3 +311,5 @@ Done: M1–M4.
 - Map view from GPS: v2.
 - Live Photos / Motion Photos: handled as a separate image and video in v1.
 - Video playback (transcoding + player): deferred until more users request it (§4.5).
+- Public share links: deferred until we've studied how users share (§4.8).
+- ZIP export: deferred; "Download selected" covers most needs (§4.4).

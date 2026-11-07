@@ -43,6 +43,7 @@ const ROUTES: [apigw.HttpMethod, string][] = [
   [apigw.HttpMethod.DELETE, '/media/{mediaId}'],
   [apigw.HttpMethod.POST, '/media/{mediaId}/restore'],
   [apigw.HttpMethod.POST, '/media/batch'],
+  [apigw.HttpMethod.POST, '/media/download'],
   [apigw.HttpMethod.GET, '/trash'],
   [apigw.HttpMethod.DELETE, '/trash'],
   [apigw.HttpMethod.GET, '/albums'],

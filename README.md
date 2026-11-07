@@ -2,17 +2,22 @@
 
 Self-hosted photo and video storage that runs in **your own AWS account**. It's private by default and designed to cost a few dollars a month.
 
-> **Status: work in progress.** Done so far: infrastructure (auth, storage, CDN, budget alarm), the upload/list API, image processing (thumbnails, EXIF, HEIC, RAW previews), albums, tags and trash, and a web app with sign-in, bulk upload, a timeline, multi-select and a lightbox. Sharing and ZIP export come next. Video playback is deferred (see below). See the [milestones](docs/SPEC.md#10-milestones).
+> **Status: work in progress.** Done so far: infrastructure (auth, storage, CDN, budget alarm), the upload/list API, image processing (thumbnails, EXIF, HEIC, RAW previews), albums, tags and trash, and a web app with sign-in, bulk upload, a timeline, multi-select, "Download selected" and a lightbox. Production hosting (Amplify) comes next. Share links, ZIP export and video playback are deferred (see below). See the [milestones](docs/SPEC.md#10-milestones).
 
-## Features (planned for v1)
+## Features
 
 - Albums (one photo can be in many albums) and tags
-- Bulk, resumable uploads straight to S3, up to 5 GB per file
+- Bulk uploads straight to S3, up to 5 GB per file
 - RAW support (CR3, NEF, ARW, DNG, …) using the embedded JPEG preview
-- Sorting by EXIF date taken, a 30-day trash, and album download as ZIP
-- Public share links with optional expiry and password
+- Sorting by EXIF date taken, and a 30-day trash
+- **Download selected:** on desktop the originals download one after another; on phones, "Save" opens the share sheet to save them to Photos or Files in one step
 - Invite-only accounts (Cognito), with optional authenticator-app MFA
 - Responsive web UI for desktop and mobile
+
+### Deferred until we learn more
+
+- **Public share links.** How people actually share (a link or a password, expiry, which apps) should be understood before choosing a design. For now, invite people as users, or use "Download selected" and send the files. A draft design is in [docs/SPEC.md](docs/SPEC.md#48-share-links-deferred).
+- **Album download as ZIP.** "Download selected" covers most needs. A server-side ZIP job is designed but not built ([SPEC §4.4](docs/SPEC.md#44-zip-export-deferred)).
 
 ### Videos: stored, but no playback yet
 

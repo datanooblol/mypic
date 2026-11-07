@@ -42,6 +42,16 @@ export interface DownloadResponse {
   url: string;
 }
 
+export interface DownloadManyRequest {
+  mediaIds: string[];
+}
+
+export interface DownloadManyResponse {
+  /** In request order; presigned GETs with Content-Disposition: attachment. */
+  items: { mediaId: string; filename: string; size: number; mime: string; url: string }[];
+  failed: { mediaId: string; message: string }[];
+}
+
 export interface MeResponse {
   userId: string;
   email?: string;

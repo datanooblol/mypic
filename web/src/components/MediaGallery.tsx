@@ -7,7 +7,8 @@ import { monthKey, monthLabel } from '@/lib/format';
 import { batch, getMedia, isPending, plural, updateAlbum } from '@/lib/media';
 import { useNow } from '@/lib/use-now';
 import { AlbumPicker } from './AlbumPicker';
-import { AlbumIcon, CloseIcon, RestoreIcon, StarIcon, TagIcon, TrashIcon } from './icons';
+import { DownloadDialog } from './DownloadDialog';
+import { AlbumIcon, CloseIcon, DownloadIcon, RestoreIcon, StarIcon, TagIcon, TrashIcon } from './icons';
 import { Lightbox, type LightboxActions } from './Lightbox';
 import { MediaTile } from './MediaTile';
 import { TagEditor } from './TagEditor';
@@ -35,7 +36,11 @@ interface MediaGalleryProps {
   onItemsChanged?: () => void;
 }
 
-type DialogState = { kind: 'album'; ids: string[] } | { kind: 'tags'; ids: string[] } | null;
+type DialogState =
+  | { kind: 'album'; ids: string[] }
+  | { kind: 'tags'; ids: string[] }
+  | { kind: 'download'; items: MediaView[] }
+  | null;
 
 export function MediaGallery({ mode, fetchPage, empty, header, onItemsChanged }: MediaGalleryProps) {
   const { queue } = useUploads();
@@ -354,6 +359,12 @@ export function MediaGallery({ mode, fetchPage, empty, header, onItemsChanged }:
             >
               Select all
             </button>
+            <BarButton
+              icon={DownloadIcon}
+              label="Download"
+              disabled={busy}
+              onClick={() => setDialog({ kind: 'download', items: items.filter((m) => selected.has(m.mediaId)) })}
+            />
             {isTrash ? (
               <>
                 <BarButton icon={RestoreIcon} label="Restore" disabled={busy} onClick={() => void restore(selectedIds).then(clearSelection)} />
@@ -443,6 +454,7 @@ export function MediaGallery({ mode, fetchPage, empty, header, onItemsChanged }:
           onClose={() => setDialog(null)}
         />
       )}
+      {dialog?.kind === 'download' && <DownloadDialog items={dialog.items} onClose={() => setDialog(null)} />}
       {dialog?.kind === 'tags' && (
         <TagEditor
           itemCount={dialog.ids.length}
